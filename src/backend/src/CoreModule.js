@@ -31,6 +31,7 @@ const opentelemetry = require('@opentelemetry/api');
 const query = require('./om/query/query');
 const { redisClient } = require('./clients/redis/redisSingleton');
 const { kv } = require('./util/kvSingleton');
+const { s3ClientProvider } = require('./clients/s3/s3ClientProvider');
 
 /**
  * @footgun - real install method is defined above
@@ -84,6 +85,7 @@ const install = async ({ context, services, app, useapi, modapi }) => {
         def('core.database', require('./services/database/consts.js'));
 
         def('core.redisClient', redisClient);
+        def('core.s3ClientProvider', s3ClientProvider);
         def('core.kvjs', kv);
 
         // Add otelutil functions to `core.`

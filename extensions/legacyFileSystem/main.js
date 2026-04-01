@@ -19,8 +19,8 @@
 
 import FSEntryController from './fsentries/FSEntryController.js';
 import PuterFSProvider from './PuterFSProvider.js';
-import LocalDiskStorageController from './storage/LocalDiskStorageController.js';
 import ProxyStorageController from './storage/ProxyStorageController.js';
+import S3StorageController from './storage/S3StorageController.js';
 
 const svc_event = extension.import('service:event');
 
@@ -31,9 +31,9 @@ extension.on('init', async () => {
     fsEntryController.init();
 
     // Keep track of possible storage strategies for puterfs here
-    let defaultStorage = 'flat-files';
+    let defaultStorage = 'S3';
     const storageStrategies = {
-        'flat-files': new LocalDiskStorageController(),
+        'S3': new S3StorageController(),
     };
 
     // Emit the "create storage strategies" event

@@ -20,8 +20,6 @@ import CoreModule from './src/CoreModule.js';
 import DatabaseModule from './src/DatabaseModule.js';
 import { testlaunch } from './src/index.js';
 import { Kernel } from './src/Kernel.js';
-import LocalDiskStorageModule from './src/LocalDiskStorageModule.js';
-import MemoryStorageModule from './src/MemoryStorageModule.js';
 import { PuterAIModule } from './src/modules/ai/PuterAIChatModule.js';
 import { AppsModule } from './src/modules/apps/AppsModule.js';
 import { BroadcastModule } from './src/modules/broadcast/BroadcastModule.js';
@@ -74,8 +72,6 @@ export default {
     CoreModule,
     WebModule,
     DatabaseModule,
-    LocalDiskStorageModule,
-    MemoryStorageModule,
     SelfHostedModule,
     TestDriversModule,
     TestConfigModule,

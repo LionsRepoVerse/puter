@@ -65,17 +65,11 @@ class Kernel extends AdvancedBase {
         global.cl = console.log;
 
         const { RuntimeEnvironment } = require('./boot/RuntimeEnvironment');
-        const { BootLogger } = require('./boot/BootLogger');
-
-        // Temporary logger for boot process;
-        // LoggerService will be initialized in app.js
-        const bootLogger = new BootLogger();
-        this.bootLogger = bootLogger;
 
         // Determine config and runtime locations
         const runtimeEnv = new RuntimeEnvironment({
             entry_path: this.entry_path,
-            logger: bootLogger,
+            logger: console,
             boot_parameters,
         });
         const environment = runtimeEnv.init();
@@ -115,7 +109,7 @@ class Kernel extends AdvancedBase {
         // === START: Initialize Service Registry ===
         const { Container } = require('./services/Container');
 
-        const services = new Container({ logger: this.bootLogger });
+        const services = new Container();
         this.services = services;
 
         const root_context = Context.create({
@@ -123,7 +117,7 @@ class Kernel extends AdvancedBase {
             useapi: this.useapi,
             services,
             config,
-            logger: this.bootLogger,
+            logger: console,
             extensionExports: this.extensionExports,
             extensionInfo: this.extensionInfo,
             registry: this.registry,
@@ -226,7 +220,7 @@ class Kernel extends AdvancedBase {
             try {
                 process.send('ready');
             } catch ( err ) {
-                this.bootLogger?.error?.('failed to send ready signal', err);
+                console.error('failed to send ready signal', err);
             }
         }
     }
@@ -356,7 +350,7 @@ class Kernel extends AdvancedBase {
         } else {
             // If directory is empty, we'll just skip it
             if ( fs.readdirSync(mod_path).length === 0 ) {
-                this.bootLogger.warn(`Empty mod directory ${quot(mod_path)}; skipping...`);
+                console.warn(`Empty mod directory ${quot(mod_path)}; skipping...`);
                 return;
             }
 
@@ -566,9 +560,9 @@ class Kernel extends AdvancedBase {
 
         // If no entry specified or found, skip or error
         if ( ! entry ) {
-            this.bootLogger.error(`Expected main.js or index.js in ${quot(mod_path)}`);
+            console.error(`Expected main.js or index.js in ${quot(mod_path)}`);
             if ( ! process.env.SKIP_INVALID_MODS ) {
-                this.bootLogger.error('Set SKIP_INVALID_MODS=1 (environment variable) to run anyway.');
+                console.error('Set SKIP_INVALID_MODS=1 (environment variable) to run anyway.');
                 process.exit(1);
             } else {
                 return;
@@ -582,7 +576,7 @@ class Kernel extends AdvancedBase {
         };
         const data_json = JSON.stringify(data);
 
-        this.bootLogger.debug(`WRITING TO: ${ path_.join(mod_path, 'package.json')}`);
+        console.debug(`WRITING TO: ${ path_.join(mod_path, 'package.json')}`);
 
         await fs.promises.writeFile(path_.join(mod_path, 'package.json'), data_json);
         return data;
