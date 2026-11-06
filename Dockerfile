@@ -1,64 +1,96 @@
-# /!\ NOTICE /!\
+# syntax=docker/dockerfile:1.7
+#
+# OSS Puter image — multi-arch (linux/amd64, linux/arm64).
+#
+# Build & push:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#       -t ghcr.io/heyputer/puter:latest --push .
+#
+# Local single-arch build:
+#   docker build -t puter .
+#
+# Self-hosters inject configuration by mounting a config.json at
+# /etc/puter/config.json. It is deep-merged over the bundled
+# config.default.json, so partial overrides work. Absent file = defaults.
 
-# Many of the developers DO NOT USE the Dockerfile or image.
-# While we do test new changes to Docker configuration, it's
-# possible that future changes to the repo might break it.
-# When changing this file, please try to make it as resiliant
-# to such changes as possible; developers shouldn't need to
-# worry about Docker unless the build/run process changes.
+# ---- Build stage ----
+FROM node:26-bookworm-slim AS build
 
-# Build stage
-FROM node:21-alpine AS build
+WORKDIR /opt/puter
 
-# Install build dependencies
-RUN apk add --no-cache git python3 make g++ \
-    && ln -sf /usr/bin/python3 /usr/bin/python
+# Build toolchain needed for native deps (bcrypt, sharp, better-sqlite3, …).
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends python3 make g++ git && \
+    rm -rf /var/lib/apt/lists/*
 
-# Set up working directory
-WORKDIR /app
+ENV HUSKY=0
+ENV npm_config_fund=false
+ENV npm_config_audit=false
 
-# Copy package.json and package-lock.json
-COPY package*.json ./
+# ---- Dependency layer ---------------------------------------------------
+# Copy ONLY package manifests + lockfile first so the npm-install layer
+# stays cached when only source files change.
+COPY package.json package-lock.json ./
+COPY src/backend/package.json src/backend/
+COPY src/gui/package.json src/gui/
+COPY src/puter-js/package.json src/puter-js/package-lock.json src/puter-js/
+COPY src/worker/package.json src/worker/
+COPY src/docs/package.json src/docs/
 
-# Copy the source files
+# extensionSetup.mjs runs as the postinstall hook during npm ci. (No-ops
+# unless any packages/puter/extensions/* gain a package.json.)
+COPY tools/extensionSetup.mjs tools/extensionSetup.mjs
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
+
+# ---- Source layer -------------------------------------------------------
 COPY . .
 
-# Install node modules
-RUN npm cache clean --force \
-    && npm ci
+# Compile backend TS, then build GUI + puter-js webpack bundles in
+# parallel. The GUI/puter-js bundles are how /dist/bundle.min.{js,css}
+# and /sdk/puter.js fall back to local assets when the kernel-config
+# CDN keys are unset.
+RUN npm run build:ts
+RUN set -e; \
+    (cd src/gui && node ./build.js) & gui_pid=$!; \
+    (cd src/puter-js && npm run build) & pjs_pid=$!; \
+    wait $gui_pid; \
+    wait $pjs_pid
 
-# Run the build command if necessary
-RUN npm run build
+# ---- Runtime stage (slim — no build tools) ----
+FROM node:26-bookworm-slim
 
-# Production stage
-FROM node:21-alpine
+WORKDIR /opt/puter
 
-# Set labels
-LABEL repo="https://github.com/HeyPuter/puter"
-LABEL license="AGPL-3.0,https://github.com/HeyPuter/puter/blob/master/LICENSE.txt"
-LABEL version="1.2.46-beta-1"
+# git: runtime version probe. wget: HEALTHCHECK.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git wget && \
+    rm -rf /var/lib/apt/lists/*
 
-# Install git (required by Puter to check version)
-RUN apk add --no-cache git
+COPY --from=build --chown=node:node /opt/puter .
 
-# Set up working directory
-RUN mkdir -p /opt/puter/app
-WORKDIR /opt/puter/app
+RUN mkdir -p /etc/puter /var/puter && \
+    chown -R node:node /etc/puter /var/puter
 
-# Copy built artifacts and necessary files from the build stage
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-COPY . .
+# Fix outdated HOME_URL in /etc/os-release (see issue #4329)
+# The base image may contain a reference to the old phoenix repository.
+RUN if [ -f /etc/os-release ]; then \
+      sed -i 's|HOME_URL="https://github.com/HeyPuter/phoenix"|HOME_URL="https://github.com/HeyPuter/puter"|' /etc/os-release; \
+    fi
 
-# Set permissions
-RUN chown -R node:node /opt/puter/app
-USER node
+# Self-hosters mount their override at this exact path. The v2 loader
+# deep-merges it over config.default.json (see backend/index.ts).
+ENV PUTER_CONFIG_PATH=/etc/puter/config.json
+ENV NODE_OPTIONS=--enable-source-maps
 
 EXPOSE 4100
+# The inbound SMTP receiver, when run from this image with the `smtp` profile.
+EXPOSE 2525
 
-HEALTHCHECK --interval=30s --timeout=3s \
+USER node
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://puter.localhost:4100/test || exit 1
 
-ENV NO_VAR_RUNTUME=1
-
-CMD ["npm", "start"]
+CMD ["node", "-r", "./dist/src/backend/telemetry.js", "./dist/src/backend/index.js"]
